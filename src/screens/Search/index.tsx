@@ -1,7 +1,8 @@
 import { Search as SearchIcon } from 'lucide-react-native';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import Button from '../../components/Button';
 import type { SearchStackScreenProps } from '../../navigation/types';
 
 const DUMMY_MANGA_ID = 'a1c7c817-4e59-43b7-9365-09675a149a6f';
@@ -22,13 +23,11 @@ export default function SearchScreen({ navigation }: SearchStackScreenProps<'Sea
         <Text className="font-sans text-body-md text-ink-muted">
           Hasil pencarian muncul di sini (Milestone 6)
         </Text>
-        <Pressable
+        <Button
+          label="Buka MangaDetail (test nav)"
           onPress={() => navigation.navigate('MangaDetail', { mangaId: DUMMY_MANGA_ID })}
-          className="mt-lg rounded-full bg-brand-yellow px-lg py-sm active:bg-brand-yellow-deep">
-          <Text className="font-sans text-button font-semibold text-ink-on-yellow">
-            Buka MangaDetail (test nav)
-          </Text>
-        </Pressable>
+          className="mt-lg"
+        />
       </View>
     </SafeAreaView>
   );

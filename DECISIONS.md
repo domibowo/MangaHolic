@@ -280,3 +280,38 @@ websocket diam-diam di background — tidak crash, sudah diverifikasi jalan
 normal di emulator tanpa Reactotron app terbuka). Juga menambah sedikit
 percabangan `__DEV__`/`NODE_ENV` di `store/index.ts` yang harus tetap
 dijaga saat refactor store nanti.
+
+---
+
+## 009 — Font custom per-weight sebagai family terpisah (bukan satu family + fontWeight)
+
+**Tanggal:** 2026-09-14
+**Status:** Diterapkan (Milestone 4)
+
+**Konteks:** Saat bundling Fraunces & Inter sebagai font native (follow-up
+Milestone 1), pola web biasa — satu `fontFamily: 'Inter'` lalu switch
+tebal-tipis lewat CSS `font-weight` — **tidak berlaku** di React Native.
+Font custom yang di-embed cuma merender pada weight aslinya; style
+`fontWeight` di `<Text>` tidak mengubah rendering font custom (beda
+dengan font sistem yang punya varian bold otomatis).
+
+**Keputusan:** setiap weight Inter yang dipakai di DESIGN.md (400
+Regular, 500 Medium, 600 SemiBold) di-bundle sebagai **file & nama
+family terpisah** (`Inter-Regular.ttf`, `Inter-Medium.ttf`,
+`Inter-SemiBold.ttf`), begitu juga Fraunces (cuma butuh 600 SemiBold
+untuk heading). `tailwind.config.js` memetakan tiap file ke utility
+sendiri: `font-sans` (Regular/400), `font-sans-medium` (500),
+`font-sans-semibold` (600), `font-heading` (Fraunces SemiBold).
+
+**Alasan:** ini satu-satunya cara embed-font custom render weight yang
+benar secara konsisten di Android **dan** iOS tanpa bold sintetis yang
+tidak akurat (beda hasil render antar platform kalau dipaksa pakai
+`fontWeight` di atas satu family).
+
+**Trade-off yang diterima:** kalau nanti ada tambahan weight baru
+(mis. Inter Bold 700 untuk kebutuhan tertentu), harus fetch font file
+baru + tambah entry `fontFamily` baru — bukan sekadar ubah
+`fontWeight`. Konvensi ini harus diikuti developer berikutnya: **jangan**
+pakai `font-semibold`/`font-bold` Tailwind bawaan di atas `font-sans`
+untuk teks yang butuh tebal — selalu pakai `font-sans-medium` /
+`font-sans-semibold` sesuai typography token yang dituju di DESIGN.md.

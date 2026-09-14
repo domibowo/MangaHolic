@@ -30,7 +30,7 @@ export default function ReaderScreen({ navigation, route }: DetailStackScreenPro
             <ArrowLeft color="#f7f5f2" size={20} />
           </Pressable>
           <View className="rounded-full bg-black/60 px-md py-xxs">
-            <Text className="font-sans text-caption text-on-dark">
+            <Text className="font-sans-medium text-caption text-on-dark">
               manga {mangaId.slice(0, 8)}… · 1 / 27
             </Text>
           </View>

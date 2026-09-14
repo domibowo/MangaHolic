@@ -46,8 +46,13 @@ module.exports = {
         'ink-secondary-dark': '#c9c1b3',
       },
       fontFamily: {
-        heading: ['Fraunces'],
-        sans: ['Inter'],
+        // Nama family harus persis sama dengan nama font ter-embed (lihat
+        // assets/fonts/) — font custom di RN tidak ikut fontWeight, jadi
+        // setiap weight dibundle & dipetakan sebagai family terpisah.
+        heading: ['Fraunces-SemiBold'],
+        sans: ['Inter-Regular'],
+        'sans-medium': ['Inter-Medium'],
+        'sans-semibold': ['Inter-SemiBold'],
       },
       borderRadius: {
         xs: '4px',

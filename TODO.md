@@ -163,17 +163,38 @@ sudah diupdate ke 80px supaya tidak drift dari implementasi nyata.
 
 ## Milestone 4 — Theme
 
-- [ ] Pastikan seluruh token warna/tipografi/spacing/radius di
-      `tailwind.config.js` sinkron dengan [DESIGN.md](./DESIGN.md) (sudah
-      dibuat di Milestone 1 — verifikasi ulang tidak ada token yang
-      ketinggalan setelah DESIGN.md direvisi)
-- [ ] Bundle font Fraunces & Inter sebagai asset native (follow-up dari
-      Milestone 1) — verifikasi `font-heading`/`font-sans` render font
-      asli, bukan fallback sistem
-- [ ] Komponen dasar reusable di `src/components/`: `Button` (primary/
-      secondary/ghost varian DESIGN.md), `Chip` (genre), `Badge` (status)
-      — dipakai bersama di semua screen berikutnya, bukan dibuat ulang
-      per screen
+- [x] Verifikasi token warna/tipografi/spacing/radius di
+      `tailwind.config.js` sinkron dengan [DESIGN.md](./DESIGN.md) — tidak
+      ada yang ketinggalan; hanya `rounded-full` yang tidak dipetakan
+      eksplisit (dibiarkan pakai default Tailwind `9999px`, sudah sama
+      persis dengan token `rounded.full`)
+- [x] Bundle font Fraunces & Inter sebagai asset native (follow-up dari
+      Milestone 1) — `assets/fonts/{Inter-Regular,Inter-Medium,
+      Inter-SemiBold,Fraunces-SemiBold}.ttf`, di-link ke
+      `android/app/src/main/assets/fonts/` dan ke
+      `ios/MangaHolic.xcodeproj` (`UIAppFonts` di Info.plist +
+      Resources build phase) lewat `npx react-native-asset` (dipanggil
+      sekali via `npx`, bukan dependency permanen). **Diverifikasi jalan
+      di emulator Android sungguhan** — screenshot menunjukkan judul
+      "Mangaholic" render pakai Fraunces serif asli dan body/button teks
+      pakai Inter asli, bukan fallback font sistem.
+- [x] Komponen dasar reusable di `src/components/`: `Button` (primary/
+      secondary/ghost), `Chip` (genre, dengan state `selected` untuk
+      dipakai sebagai filter chip di Milestone 5), `Badge` (status manga +
+      varian "new") — sudah dipakai langsung menggantikan `Pressable`
+      manual di Browse/Search/MangaDetail, diverifikasi render benar di
+      emulator (lihat catatan bug font-weight di bawah)
+
+**Temuan saat implementasi:** font custom yang di-embed di RN **tidak
+ikut `fontWeight` style** — beda dari CSS web `@font-face` yang bisa satu
+family menampung banyak weight. Karena itu tiap weight Inter yang dipakai
+DESIGN.md (400/500/600) di-bundle sebagai **file & nama family terpisah**
+(`Inter-Regular`, `Inter-Medium`, `Inter-SemiBold`), dan
+`tailwind.config.js` menambah utility `font-sans-medium` /
+`font-sans-semibold` di samping `font-sans` default. Pola lama
+`font-sans ... font-semibold` (tidak akan efektif menebalkan font custom)
+sudah diganti ke `font-sans-semibold` di semua screen yang pakai gaya
+`button` (weight 600).
 
 ## Milestone 5 — Screen Browse
 

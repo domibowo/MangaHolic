@@ -1,0 +1,21 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/Fraunces-SemiBold.ttf",
+      "sha1": "941cb0ca8007fc7ae0a76ec7c0725f0714b71f01"
+    },
+    {
+      "path": "assets/fonts/Inter-Medium.ttf",
+      "sha1": "be2100451bd64fccd64a8be897658fd9a7da0b0a"
+    },
+    {
+      "path": "assets/fonts/Inter-Regular.ttf",
+      "sha1": "d759961aee59ecdf39ac182e580e6f9166e5c5a2"
+    },
+    {
+      "path": "assets/fonts/Inter-SemiBold.ttf",
+      "sha1": "202f1d1a141271d294342d81ed693d8d469c3caa"
+    }
+  ]
+}

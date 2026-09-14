@@ -28,7 +28,7 @@ const persistedReducer = persistReducer(
 // Reactotron cuma ada di devDependencies — import lewat require() supaya
 // tidak pernah masuk bundle release (lihat src/config/ReactotronConfig.ts).
 // Dilewati juga di lingkungan test (Jest, tanpa XMLHttpRequest global).
-const isTestEnv = process.env.NODE_ENV === 'test';
+const isTestEnv = typeof jest !== 'undefined';
 const reactotronEnhancer: any =
   __DEV__ && !isTestEnv ? require('../config/ReactotronConfig').default.createEnhancer() : undefined;
 
