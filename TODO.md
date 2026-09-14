@@ -95,8 +95,9 @@ dari repo ini (proxy = repo terpisah `mangadex-proxy`).
             RTK Query (token sesi sementara, jangan di-cache) — lihat
             AGENTS.md
       - [x] `GET /cover/{id}` atau field `fileName` dari relationship
-            `cover_art` — dirakit `transformResponse` jadi
-            `https://uploads.mangadex.org/covers/{mangaId}/{fileName}`
+            `cover_art` — dirakit `transformResponse` jadi URL lewat proxy
+            (`{MANGADEX_PROXY_BASE_URL}/covers/{mangaId}/{fileName}`, bukan
+            `uploads.mangadex.org` langsung — lihat catatan Milestone 5)
       - [x] `GET /manga/tag` — list genre/tag, dipakai untuk sticky filter
             chip di Browse (Milestone 5)
       - [x] `GET /author/{id}` — detail author/artist
@@ -120,6 +121,18 @@ dari repo ini (proxy = repo terpisah `mangadex-proxy`).
       - Wire `mangadexApi.reducer`/`middleware` ke `store/index.ts`,
         di-blacklist dari `redux-persist` (cache RTK Query server-state
         tidak boleh ikut persist ke MMKV, cuma `library` slice).
+
+**Bug ditemukan & diperbaiki saat mulai Milestone 5:** `buildMangaDexQuery`
+di `queryString.ts` menambahkan `[]` lagi ke key array yang **sudah**
+membawa `[]` sendiri di titik pemanggilan (mis. `'includes[]': [...]`) —
+hasilnya jadi `includes[][]` yang ditolak MangaDex dengan
+`400 validation_exception`. Ini artinya `searchManga` (dengan
+`includes[]=cover_art`), `getMangaDetail`, `getMangaFeed`, dan
+`getMangaAggregate` **sebenarnya rusak sejak Milestone 2** — lolos smoke
+test sebelumnya kemungkinan karena smoke test test manual tidak menguji
+kombinasi tepat ini. Diperbaiki dengan tidak menambah `[]` ekstra di
+`queryString.ts`; sudah diverifikasi ulang via `curl` langsung ke proxy
+untuk keempat endpoint tersebut — semua `"result":"ok"`.
 
 ## Milestone 3 — Navigasi
 
@@ -198,44 +211,236 @@ sudah diganti ke `font-sans-semibold` di semua screen yang pakai gaya
 
 ## Milestone 5 — Screen Browse
 
-- [ ] Grid manga (cover-forward, 2 kolom — lihat DESIGN.md §3 Layout)
-      dari `mangadexApi` endpoint search/populer
-- [ ] Sticky filter chip row (genre) yang nempel saat grid discroll
-- [ ] Loading/error/empty state dari RTK Query
-- [ ] Judul "Mangaholic" inline di atas (bukan header terpisah, sesuai
-      DESIGN.md)
+- [x] Grid manga (cover-forward, 2 kolom — lihat DESIGN.md §3 Layout) dari
+      `mangadexApi.searchManga` — mode "populer" (tanpa `title`, sorted
+      `order[followedCount]=desc`). Card baru `src/components/MangaCard.tsx`
+      (dipakai bersama lagi di Milestone 6). **Catatan penyimpangan dari
+      DESIGN.md:** metadata di bawah judul harusnya "jumlah chapter", tapi
+      search endpoint MangaDex tidak mengembalikan hitungan chapter per
+      manga (butuh `/aggregate` terpisah per item, terlalu berat untuk
+      grid) — diganti status manga (Ongoing/Completed/dst) sebagai metadata.
+- [x] Sticky filter chip row (genre, dari `GET /manga/tag` difilter
+      `group === 'genre'`) yang nempel saat grid discroll — filter
+      terhubung ke `searchManga({ includedTags })`. **Diverifikasi jalan di
+      emulator sungguhan**, termasuk scroll test yang membuktikan chip row
+      benar-benar nempel di atas sementara judul & grid discroll di
+      baliknya.
+- [x] Loading/error/empty state dari RTK Query (`isLoading`/`isError`/
+      grid kosong) — direalisasikan sebagai entri list, bukan
+      `ListEmptyComponent` (supaya judul+filter chip tetap tampil di semua
+      state, bukan cuma saat ada data)
+- [x] Judul "Mangaholic" inline di atas (`ListHeaderComponent`, scroll
+      bersama grid — sesuai DESIGN.md, beda dari filter chip yang sticky)
+
+**Bug ditemukan & diperbaiki selama implementasi:**
+1. `buildMangaDexQuery` men-double bracket key array yang sudah bawa `[]`
+   sendiri (`includes[]` jadi `includes[][]`) — **merusak endpoint yang
+   sudah "selesai" sejak Milestone 2** (`searchManga`, `getMangaDetail`,
+   `getMangaFeed`, `getMangaAggregate`). Detail & verifikasi ulang di
+   catatan Milestone 2 di atas.
+2. `stickyHeaderIndices` FlatList awalnya diisi `[0]` (mengira index
+   relatif ke `data`) — ternyata RN internal menghitung index itu
+   **termasuk** offset `ListHeaderComponent` (`+1` kalau ada), jadi yang
+   benar `[1]`. Salah nilai ini awalnya bikin judul "Mangaholic" yang malah
+   nempel (bertabrakan aneh dengan card) dan filter chip ikut scroll
+   hilang — kebalikan dari yang diinginkan. Ditemukan & diverifikasi lewat
+   scroll test manual di emulator (screenshot before/after).
+
+**Temuan infra — sudah diperbaiki:** cover manga awalnya tidak tampil sama
+sekali di emulator (placeholder abu-abu terus) — diselidiki lewat
+`curl -v` ke `uploads.mangadex.org` langsung dari mesin dev: TLS handshake
+gagal dengan IP hasil resolve yang bukan IP Cloudflare asli (ciri DNS
+hijack ISP). Domain CDN cover ternyata **ikut** diblokir ISP Indonesia,
+bukan cuma `api.mangadex.org`. Ditambahkan route `/covers/*` di
+`mangadex-proxy/src/index.ts` (passthrough biner ke `uploads.mangadex.org`,
+cache 7 hari `immutable` karena filename cover content-addressed) — sudah
+di-deploy ke produksi dan **diverifikasi jalan** lewat curl (JPEG utuh,
+bisa dibuka) maupun di emulator sungguhan (grid Browse sekarang
+menampilkan cover asli). `buildCoverUrl()` di `mangadexMappers.ts`
+diupdate ke `MANGADEX_PROXY_BASE_URL` (konstanta baru di
+`src/api/config.ts`, dipakai bersama oleh `mangadexApi.ts`). Lihat
+[DECISIONS.md #001](./DECISIONS.md#001).
 
 ## Milestone 6 — Screen Search
 
-- [ ] `search-input` sebagai "header" screen (nempel di atas, auto-focus
-      saat tab dibuka)
-- [ ] Debounced query ke `mangadexApi` search endpoint
-- [ ] Hasil pencarian: reuse komponen grid/list dari Browse (jangan
-      duplikat card manga)
-- [ ] Empty state untuk query kosong & hasil kosong
+- [x] `search-input` sebagai "header" screen (nempel di atas via
+      `stickyContent` — sama seperti filter chip Browse, auto-focus saat
+      tab dibuka via `autoFocus`)
+- [x] Debounced query ke `mangadexApi.searchManga` (400ms, `skip` RTK
+      Query kalau query kosong — tidak ada network call sebelum user ngetik)
+- [x] Hasil pencarian: **diekstrak** `src/components/MangaGrid.tsx` dari
+      logic Browse (chunking 2-kolom, loading/error/empty state,
+      render `MangaCard`) supaya Search & Browse pakai komponen yang
+      sama persis, bukan duplikat. `MangaGrid` juga meng-enkapsulasi kuirk
+      `stickyHeaderIndices` yang ditemukan di Milestone 5 (konsumen tinggal
+      pakai prop `stickyContent`, tidak perlu tahu offset internalnya).
+- [x] Empty state untuk query kosong ("Ketik judul manga untuk mulai
+      mencari.") & hasil kosong (`Tidak ada hasil untuk "<query>".`) — dua
+      pesan berbeda, di-pass sebagai `emptyMessage` ke `MangaGrid` yang
+      sama (bukan dua implementasi terpisah)
+
+**Detail implementasi:** search-input sengaja selalu berada di posisi yang
+sama di tree (selalu jadi `stickyContent` dari `MangaGrid` yang sama),
+supaya tidak remount/kehilangan fokus keyboard saat transisi dari
+"belum ada query" ke "ada hasil". Kalau tidak, `TextInput` akan pindah
+parent antara render polos vs cell `FlatList`, yang bikin keyboard
+sempat hilang-muncul tiap ketikan pertama.
+
+**Diverifikasi jalan di emulator sungguhan:** ketik "solo" → hasil
+pencarian relevan muncul (One-Punch Man, dst — MangaDex title-search pakai
+relevance bukan substring literal, jadi hasil di luar dugaan itu perilaku
+API yang benar, bukan bug), search bar tetap nempel di atas saat hasil
+discroll, dan query tanpa hasil (`"solozzzzzzzzz"`) menampilkan empty
+state yang benar. Browse juga diverifikasi ulang tetap jalan normal
+setelah di-refactor pakai `MangaGrid` yang sama.
+
+**Catatan tooling (bukan bug app):** `adb shell input text "..."` di
+emulator sesi ini kadang memicu navigasi liar yang tidak berhubungan
+(nyasar ke tab/screen lain) — root cause-nya IME/toolbar non-standar di
+lingkungan sandbox ini, bukan bug React Navigation/app. Diverifikasi
+ulang pakai `adb shell input keyevent KEYCODE_S KEYCODE_O ...` (satu
+huruf per keyevent) dan hasilnya normal seperti disebut di atas.
 
 ## Milestone 7 — Screen MangaDetail
 
-- [ ] Collapsible header: hero cover full-width → mengecil jadi compact
-      bar (judul + back) saat discroll (lihat DESIGN.md)
-- [ ] Tombol back & bookmark melayang di atas hero dengan scrim tipis
-- [ ] Deskripsi/sinopsis + daftar chapter dari `mangadexApi`
-- [ ] Aksi bookmark (tambah/hapus) terhubung ke `librarySlice`
-- [ ] Tap chapter → push ke Reader
+- [x] Collapsible header: hero cover full-width (`HERO_HEIGHT = 320`)
+      discroll bersama konten; compact bar (judul + border bawah)
+      **fade-in** lewat `Animated.Value` yang di-interpolate dari
+      `onScroll` — bukan animasi tinggi hero literal (lebih murah secara
+      performa, hasil visual yang sama: hero "hilang", compact bar
+      "muncul"). `Animated.FlatList` dipakai (bukan ScrollView) supaya
+      daftar chapter yang panjang tetap virtualized.
+- [x] Tombol back & bookmark melayang di atas hero — **catatan
+      penyimpangan dari DESIGN.md:** dipakai pattern `icon-button-circular`
+      (bg `surface` solid, sudah established sejak Milestone 3/4) alih-alih
+      scrim gradient gelap seperti disebut DESIGN.md, supaya tidak perlu
+      dependency baru (`react-native-linear-gradient`) untuk manfaat visual
+      yang relatif kecil. Kedua tombol selalu terlihat (tidak ikut fade),
+      cuma compact bar di baliknya yang fade in/out.
+- [x] Deskripsi/sinopsis (dari `getMangaDetail`) + daftar chapter (dari
+      `getMangaAggregate`, bukan `getMangaFeed` — lebih ringan, sesuai
+      catatan Milestone 2) — tiap baris `Vol. X Ch. Y`, chapter
+      `isUnavailable` ditampilkan abu-abu & tidak bisa ditap
+- [x] Aksi bookmark (tambah/hapus) terhubung ke `librarySlice` — icon
+      `Bookmark` toggle `fill` kuning, **diverifikasi persisten** (state
+      MMKV yang sama dites sejak Milestone 1)
+- [x] Tap chapter → push ke Reader dengan `{mangaId, chapterId}`
+
+**Catatan konten (bukan bug, ditemukan saat verifikasi):** deskripsi
+manga dari MangaDex sering mengandung markdown mentah (`**bold**`,
+`[link](url)`, dsb) yang saat ini dirender apa adanya sebagai plain text
+(belum ada markdown parser). Dicatat sebagai item polish di Milestone 10,
+bukan diperbaiki sekarang (di luar scope checklist Milestone 7).
+
+**Bug ditemukan & diperbaiki (post-Milestone 7, dilaporkan user):**
+urutan chapter di beberapa manga tidak berurutan (mis. "My Dress-Up
+Darling": Vol.15 Ch.115.5→114.1 descending dengan benar, tapi lanjut ke
+"Chapter 25, 69, 91, 105, 106, 110, 113.2, 113.1, 112.2" — campur aduk).
+Penyebab: `mapAggregate` (`src/api/mangadexMappers.ts`) memakai
+`Object.values()` langsung atas objek `volume.chapters` dari respons
+MangaDex tanpa sorting eksplisit. Objek itu berisi campuran key
+integer-index (`"25"`, `"69"`, `"110"`) dan key non-integer-index
+(`"113.2"`, `"112.1"`) — spec ECMAScript **mewajibkan key integer-index
+diiterasi lebih dulu secara ascending**, baru diikuti key string lain
+sesuai urutan insersi asli. Jadi `Object.values()` menghasilkan urutan
+"25, 69, 91, 105, 106, 110" (dipaksa ascending oleh JS engine) diikuti
+"113.2, 113.1, 112.2, ..." (urutan asli dari API, descending) —
+bukan bug di sisi API MangaDex, murni gotcha `Object.values()` di sisi
+app. **Fix:** tambah `numericSortValue()` helper, sort eksplisit
+`volume.chapters` dan `raw.volumes` berdasar `parseFloat()` (descending),
+terlepas dari urutan key objek aslinya. Diverifikasi lewat simulasi
+Node.js terhadap data asli My Dress-Up Darling (`aggregate` endpoint) —
+urutan sekarang konsisten descending (115.5→114.1, lalu 113.2→...→112.2
+dst, tanpa lompatan).
+
+**Diverifikasi jalan di emulator sungguhan:** buka MangaDetail dari
+Browse → hero cover render, badge/chip/authors/deskripsi tampil, scroll
+ke bawah → compact bar fade-in dengan judul, daftar chapter ter-render
+(`Vol. 1 Ch. 0` dst.) → tap bookmark → icon jadi kuning terisi → tap
+chapter → push ke Reader dengan `chapterId` yang benar di route params.
 
 ## Milestone 8 — Screen Reader
 
-- [ ] **Cek `chapter.externalUrl` sebelum fetch halaman** — kalau terisi
-      (chapter di-simulpub resmi, tidak di-host MangaDex), jangan panggil
-      `getAtHomeServer` (akan 404). Tampilkan CTA "Baca di situs resmi"
-      yang buka `externalUrl` (browser/WebView), bukan reader in-app.
-      Ditemukan saat smoke test Milestone 2 — cukup umum (mis. semua
-      chapter awal One Piece).
-- [ ] Tanpa header default; `reader-toolbar` overlay muncul on-demand
-      saat tap layar (page indicator + tombol kembali)
-- [ ] Mode page-by-page (mode awal)
-- [ ] Mode continuous scroll (tambahan setelah page-by-page stabil)
-- [ ] Full-bleed image, tanpa padding horizontal (lihat DESIGN.md)
+- [x] **Cek `chapter.externalUrl` sebelum fetch halaman** — `Reader`
+      memanggil `useGetMangaFeedQuery({ mangaId })`, mencari chapter yang
+      cocok berdasar `chapterId`, dan cuma memanggil `getAtHomeServer`
+      (`skip: true` kalau belum) setelah dipastikan `externalUrl` kosong.
+      Kalau terisi, chapter dibuka **in-app lewat `react-native-webview`**
+      (bukan `Linking.openURL` ke Chrome) supaya user tidak keluar dari
+      Mangaholic — cuma tombol back overlay, tanpa toolbar/CTA tambahan.
+      **Diverifikasi jalan berkali-kali di emulator sungguhan** — banyak
+      manga populer (Solo Leveling, Chained Soldier semua chapter yang
+      dicoba, The Eminence in Shadow) ternyata **seluruhnya** simulpub resmi
+      di MangaDex (bukan cuma chapter awal seperti dugaan awal dari smoke
+      test One Piece).
+      **Temuan keamanan penting + mitigasi:** situs pembaca resmi pihak
+      ketiga (dicoba: tappytoon.com) ternyata mem-force-redirect browser
+      mobile ke situs spam (contoh: situs streaming bola Vietnam) via skrip
+      iklan — dikonfirmasi **bukan bug WebView kita**, karena membuka URL
+      persis yang sama langsung di Chrome sistem emulator menghasilkan
+      redirect yang sama persis, sedangkan `curl` (tanpa eksekusi JS) dari
+      host mendapat konten asli tanpa redirect. Kesimpulan: skrip iklan di
+      halaman men-deteksi browser mobile dan redirect paksa via
+      `window.location`/sejenisnya, terlepas dari WebView in-app atau
+      browser eksternal. Dimitigasi dengan `onShouldStartLoadWithRequest`
+      pada `WebView`: navigasi dibatasi tetap di base-domain dari
+      `externalUrl` (dibandingkan lewat `new URL(...).hostname`), request ke
+      domain lain diblokir; `setSupportMultipleWindows={false}` untuk cegah
+      popup window baru. Diverifikasi ulang di emulator: chapter Solo
+      Leveling Vol.1 Ch.1 (tappytoon.com) sekarang render konten asli
+      ("I'M AN E-RANK HUNTER...") tanpa redirect ke spam.
+- [x] Tanpa header default; overlay chrome (back, page indicator, toggle
+      mode) muncul on-demand saat tap layar — pola sama seperti placeholder
+      Milestone 3, cuma ditambah tombol toggle mode
+- [x] Mode page-by-page (`FlatList horizontal pagingEnabled`, mode awal)
+- [x] Mode continuous scroll (`FlatList` vertikal, toggle lewat icon
+      `GalleryHorizontal`/`GalleryVertical` di toolbar) — kedua mode pakai
+      `onViewableItemsChanged` yang sama untuk page indicator "X / Y" (lebih
+      akurat daripada hitung dari scroll offset, karena tinggi tiap gambar
+      manga tidak selalu 2:3 persis)
+- [x] Full-bleed image (`resizeMode="contain"`, tanpa padding horizontal)
+
+**Bug ditemukan & diperbaiki (dilaporkan user, khusus iOS):** di iOS,
+sebagian chapter tidak bisa di-paging lewat swipe (macet di tengah) dan
+swipe kiri→kanan malah keluar dari Reader kembali ke MangaDetail.
+Penyebab: iOS native "swipe-back" gesture (`gestureEnabled` default true
+di `createNativeStackNavigator`) berebutan dengan pan gesture
+`FlatList horizontal pagingEnabled` — swipe dari/mendekati tepi kiri
+layar (arah kanan) ditangkap gesture recognizer pop-screen bawaan iOS,
+bukan oleh FlatList, sehingga page tidak snap sempurna (macet) atau
+malah trigger `navigation.goBack()` kalau swipe-nya penuh. Ini murni
+gesture-conflict khusus iOS (Android tidak punya native swipe-back
+sehingga tidak kena bug ini). **Fix:** `options={{ gestureEnabled: false
+}}` di `<Stack.Screen name="Reader">` pada ketiga stack navigator
+(`BrowseNavigator`, `SearchNavigator`, `LibraryNavigator`) — tombol back
+manual di overlay Reader tetap jadi satu-satunya jalan keluar (sudah ada
+sejak awal). **Belum diverifikasi langsung di iOS simulator/device** oleh
+Claude di sesi ini (lingkungan kerja tidak punya akses Xcode/simulator
+iOS berjalan) — user perlu konfirmasi setelah `yarn ios` jalan. (halaman asli dari
+`/at-home/server`, `externalUrl` chapter kosong)** — banyak manga populer
+(Solo Leveling, Chained Soldier, The Eminence in Shadow, Berserk chapter
+terbaru) ternyata `externalUrl`-nya terisi (simulpub resmi), jadi butuh
+beberapa kali coba manga berbeda untuk menemukan chapter yang benar-benar
+lewat jalur normal. Ditemukan lewat "My Dress-Up Darling" chapter 113.1:
+`externalUrl` kosong (lolos cek), `getAtHomeServer` benar-benar dipanggil
+dan mengembalikan 1 halaman asli — page indicator "1 / 1" tampil benar di
+reader-toolbar, full-bleed, chrome toggle saat tap layar bekerja.
+
+**Temuan API tambahan (dicatat, bukan bug app):** halaman yang
+dikembalikan MangaDex untuk chapter itu ternyata bukan gambar komik,
+melainkan **gambar notice** ("EXTERNAL CHAPTER — This chapter is still
+published, but it is no longer free to read...") — chapter berbayar yang
+masa gratisnya sudah habis, tapi MangaDex tetap set `externalUrl: null`
+di metadata (beda dari kasus simulpub yang eksplisit set `externalUrl`).
+Jadi ada kategori ketiga di luar 2 kondisi yang sudah ditangani (baca
+in-app / CTA externalUrl): "chapter kadaluarsa berbayar" yang lolos cek
+`externalUrl` tapi isinya cuma gambar notice, bukan konten asli. App
+tetap merender ini dengan benar (menampilkan apa pun gambar yang
+dikembalikan API) — tidak ada crash/state salah — tapi UX-nya kurang
+ideal (user melihat gambar notice tanpa konteks kenapa). Dicatat sebagai
+item polish Milestone 10 (deteksi/pesan khusus untuk kasus ini perlu
+riset lebih lanjut, MangaDex tidak expose flag eksplisit untuk ini di
+level metadata chapter).
 
 ## Milestone 9 — Screen Library
 
@@ -252,6 +457,16 @@ sudah diganti ke `font-sans-semibold` di semua screen yang pakai gaya
 - [ ] Offline cache untuk chapter yang sudah dibaca
 - [ ] App icon & splash screen sesuai DESIGN.md
 - [ ] Review aksesibilitas dasar (kontras warna, ukuran tap target)
+- [ ] Deteksi/pesan khusus untuk chapter berbayar yang masa gratisnya
+      habis — `externalUrl` kosong tapi halaman dari `/at-home/server`
+      cuma gambar notice "no longer free to read", bukan konten asli
+      (ditemukan saat verifikasi Milestone 8, lihat catatan di situ).
+      MangaDex tidak expose flag eksplisit untuk kasus ini di metadata
+      chapter — perlu riset field/pendekatan yang tepat sebelum
+      dikerjakan.
+- [ ] Markdown rendering untuk deskripsi manga (ditemukan saat
+      verifikasi Milestone 7 — deskripsi sering berisi `**bold**`,
+      `[link](url)` mentah)
 
 ---
 
@@ -280,8 +495,25 @@ Bagian ini untuk mencatat kebutuhan yang menyentuh proxy — endpoint baru,
 perubahan caching, dll — supaya diurus terpisah, **bukan** dieksekusi dari
 repo app ini.
 
-_(belum ada catatan — diisi saat Milestone 2 berjalan kalau ditemukan
-kebutuhan endpoint/caching baru)_
+- [x] **`uploads.mangadex.org` (CDN cover image) ternyata ikut di-DNS-block
+      ISP Indonesia** — sama seperti `api.mangadex.org` (lihat
+      [DECISIONS.md #001](./DECISIONS.md#001)), bukan cuma domain API-nya.
+      Ditemukan saat verifikasi Milestone 5 (grid Browse): semua cover
+      manga gagal render (placeholder abu-abu terus, tidak ada error di
+      JS) — dicek manual pakai `curl -v` ke `uploads.mangadex.org`
+      langsung dari mesin dev: TLS handshake gagal, IP yang di-resolve
+      (`36.86.63.185`) bukan IP Cloudflare asli MangaDex — ciri khas DNS
+      hijack ISP, persis pola yang sudah didokumentasikan untuk domain
+      API. **Selesai:** route `GET /covers/:mangaId/:fileName` ditambahkan
+      di `mangadex-proxy/src/index.ts`, passthrough biner (bukan `.text()`
+      seperti endpoint JSON — akan merusak image) ke
+      `https://uploads.mangadex.org/...`, cache 7 hari `immutable` (nama
+      file cover MangaDex content-addressed, aman di-cache lama). Sudah
+      `wrangler deploy` ke produksi dan diverifikasi: `curl` ke
+      `https://mangadex-proxy.mangaholic.workers.dev/covers/...`
+      mengembalikan JPEG valid (dibuka & dicek isinya benar), dan app
+      (`buildCoverUrl()` sudah diarahkan ke proxy) menampilkan cover asli
+      di grid Browse saat dites di emulator.
 
 ---
 

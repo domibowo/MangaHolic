@@ -1,3 +1,4 @@
+import { MANGADEX_PROXY_BASE_URL } from './config';
 import type {
   AggregateChapter,
   AggregateVolume,
@@ -137,7 +138,10 @@ export function buildCoverUrl(mangaId: string, fileName: string | null): string 
   if (!fileName) {
     return null;
   }
-  return `https://uploads.mangadex.org/covers/${mangaId}/${fileName}`;
+  // Lewat proxy (yang meneruskan ke uploads.mangadex.org), bukan domain
+  // MangaDex langsung — domain CDN cover ikut di-DNS-block ISP Indonesia,
+  // sama seperti domain API. Lihat DECISIONS.md #001 & TODO.md Milestone 5.
+  return `${MANGADEX_PROXY_BASE_URL}/covers/${mangaId}/${fileName}`;
 }
 
 function mapPeopleByType(relationships: RawRelationship[], type: 'author' | 'artist'): Author[] {
@@ -181,19 +185,37 @@ export function mapChapter(raw: RawChapter): Chapter {
   };
 }
 
+/**
+ * `Object.values()` pada objek dengan key seperti "25" (integer-index)
+ * dicampur "113.2" (bukan integer-index) TIDAK mengikuti urutan insersi —
+ * spec ECMAScript mewajibkan key integer-index diiterasi lebih dulu secara
+ * ascending, baru diikuti key string lain sesuai urutan insersi asli.
+ * Aggregate MangaDex punya campuran keduanya (chapter bulat vs desimal
+ * seperti "113.1"), jadi urutan `volume.chapters`/`raw.volumes` dari API
+ * tidak bisa diandalkan — harus disortir eksplisit berdasar nilai numerik.
+ */
+function numericSortValue(value: string): number {
+  const parsed = parseFloat(value);
+  return Number.isNaN(parsed) ? -Infinity : parsed;
+}
+
 export function mapAggregate(raw: RawAggregateResponse): AggregateVolume[] {
-  return Object.values(raw.volumes ?? {}).map((volume) => ({
+  const volumes = Object.values(raw.volumes ?? {}).map((volume) => ({
     volume: volume.volume,
-    chapters: Object.values(volume.chapters ?? {}).map(
-      (chapter): AggregateChapter => ({
-        chapter: chapter.chapter,
-        id: chapter.id,
-        otherIds: chapter.others ?? [],
-        count: chapter.count,
-        isUnavailable: chapter.isUnavailable ?? false,
-      }),
-    ),
+    chapters: Object.values(volume.chapters ?? {})
+      .map(
+        (chapter): AggregateChapter => ({
+          chapter: chapter.chapter,
+          id: chapter.id,
+          otherIds: chapter.others ?? [],
+          count: chapter.count,
+          isUnavailable: chapter.isUnavailable ?? false,
+        }),
+      )
+      .sort((a, b) => numericSortValue(b.chapter) - numericSortValue(a.chapter)),
   }));
+
+  return volumes.sort((a, b) => numericSortValue(b.volume) - numericSortValue(a.volume));
 }
 
 export function buildPageUrl(baseUrl: string, hash: string, fileName: string, quality: 'data' | 'data-saver'): string {

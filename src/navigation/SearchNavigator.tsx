@@ -12,7 +12,14 @@ export default function SearchNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Search" component={SearchScreen} />
       <Stack.Screen name="MangaDetail" component={MangaDetailScreen} />
-      <Stack.Screen name="Reader" component={ReaderScreen} />
+      {/* gestureEnabled: false — swipe-back iOS berebutan dengan paging
+          horizontal FlatList di Reader (swipe kanan malah keluar chapter).
+          Tombol back manual di overlay Reader tetap jadi jalan keluar. */}
+      <Stack.Screen
+        name="Reader"
+        component={ReaderScreen}
+        options={{ gestureEnabled: false }}
+      />
     </Stack.Navigator>
   );
 }

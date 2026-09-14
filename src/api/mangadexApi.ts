@@ -2,6 +2,7 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { FetchBaseQueryError } from '@reduxjs/toolkit/query/react';
 
 import type { Author, Chapter, ChapterPages, Manga, MangaListItem, Tag, AggregateVolume } from '../types/manga';
+import { MANGADEX_PROXY_BASE_URL } from './config';
 import { buildMangaDexQuery } from './queryString';
 import {
   buildPageUrl,
@@ -53,12 +54,25 @@ function normalizeError(error: FetchBaseQueryError): NormalizedApiError {
 export const mangadexApi = createApi({
   reducerPath: 'mangadexApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: 'https://mangadex-proxy.mangaholic.workers.dev',
+    baseUrl: MANGADEX_PROXY_BASE_URL,
   }),
   endpoints: (builder) => ({
-    searchManga: builder.query<MangaListItem[], { title?: string; limit?: number; offset?: number }>({
-      query: ({ title, limit = 20, offset = 0 }) =>
-        `/manga${buildMangaDexQuery({ title, limit, offset, 'includes[]': ['cover_art'] })}`,
+    searchManga: builder.query<
+      MangaListItem[],
+      { title?: string; limit?: number; offset?: number; includedTags?: string[] }
+    >({
+      query: ({ title, limit = 20, offset = 0, includedTags }) =>
+        `/manga${buildMangaDexQuery({
+          title,
+          limit,
+          offset,
+          'includes[]': ['cover_art'],
+          'includedTags[]': includedTags,
+          // Tanpa query judul (mode "populer" di Browse), urutkan dari yang
+          // paling banyak di-follow — MangaDex mengabaikan ini kalau `title`
+          // diisi (hasil pencarian judul urut relevansi bawaan).
+          'order[followedCount]': title ? undefined : 'desc',
+        })}`,
       transformResponse: (response: RawCollectionResponse<RawManga>) =>
         response.data.map(mapMangaListItem),
       transformErrorResponse: normalizeError,

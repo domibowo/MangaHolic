@@ -8,8 +8,11 @@ export function buildMangaDexQuery(params: Record<string, QueryValue>): string {
       continue;
     }
     if (Array.isArray(value)) {
+      // Key sudah membawa "[]" sendiri di titik pemanggilan (mis.
+      // 'includes[]') — jangan ditambah lagi di sini, atau MangaDex akan
+      // menerima "includes[][]" dan menolaknya dengan 400 validation_exception.
       for (const item of value) {
-        search.append(`${key}[]`, item);
+        search.append(key, item);
       }
     } else {
       search.append(key, String(value));

@@ -38,6 +38,20 @@ kalau worker down, seluruh fitur manga ikut down. Diterima karena
 alternatifnya (direct fetch) sudah pasti gagal total untuk user di
 Indonesia, jadi bukan trade-off opsional.
 
+**Update 2026-09-14 (Milestone 5):** ternyata blocking ISP tidak cuma di
+`api.mangadex.org` — `uploads.mangadex.org` (CDN cover image) juga
+di-DNS-hijack (diverifikasi lewat `curl -v`: TLS handshake gagal, IP yang
+di-resolve bukan IP Cloudflare asli). Cakupan proxy yang dibutuhkan lebih
+luas dari perkiraan awal — bukan cuma endpoint JSON API, tapi juga asset
+image. **Sudah diperbaiki** (dengan izin eksplisit untuk mengubah repo
+`mangadex-proxy`, di luar aturan default sesi ini): route
+`GET /covers/:mangaId/:fileName` ditambahkan sebagai passthrough biner ke
+`uploads.mangadex.org`, cache 7 hari `immutable`. Di-deploy ke produksi
+(`wrangler deploy`) dan diverifikasi lewat curl (JPEG valid) & di app
+(cover tampil di grid Browse). `buildCoverUrl()` di app diarahkan ke
+proxy lewat konstanta `MANGADEX_PROXY_BASE_URL` (`src/api/config.ts`).
+Detail lengkap di [TODO.md § Kebutuhan proxy](./TODO.md#kebutuhan-proxy-dicatat-dikerjakan-di-repo-mangadex-proxy).
+
 ---
 
 ## 002 — React Native CLI (bare) dipilih daripada Expo
@@ -315,3 +329,127 @@ baru + tambah entry `fontFamily` baru — bukan sekadar ubah
 pakai `font-semibold`/`font-bold` Tailwind bawaan di atas `font-sans`
 untuk teks yang butuh tebal — selalu pakai `font-sans-medium` /
 `font-sans-semibold` sesuai typography token yang dituju di DESIGN.md.
+
+---
+
+## 010 — Chapter `externalUrl` dibuka via WebView in-app + domain-lock navigasi
+
+**Tanggal:** 2026-09-14
+**Status:** Diterapkan (follow-up Milestone 8)
+
+**Konteks:** Reader awalnya (Milestone 8) memakai `Linking.openURL` untuk
+membuka chapter simulpub resmi (externalUrl terisi) di Chrome eksternal.
+User minta chapter tetap terbaca di dalam app. Diganti ke
+`react-native-webview` (`yarn add react-native-webview`, native module —
+butuh `pod install` iOS + rebuild APK Android, bukan cuma reload JS).
+
+**Temuan saat verifikasi:** situs pembaca resmi pihak ketiga (dicoba:
+tappytoon.com, salah satu link `externalUrl` Solo Leveling) ternyata
+mem-force-redirect ke situs spam (streaming bola Vietnam) begitu dibuka
+di WebView. Diverifikasi ini **bukan bug WebView Mangaholic**: membuka
+persis URL yang sama langsung di Chrome sistem emulator menghasilkan
+redirect yang identik, sedangkan `curl` (tidak menjalankan JS) dari host
+mendapat konten asli tanpa redirect sama sekali — kesimpulannya skrip
+iklan di halaman itu men-deteksi user-agent/browser mobile lalu memaksa
+navigasi ke domain lain, terlepas dari WebView in-app atau browser biasa.
+
+**Keputusan:** tambahkan `onShouldStartLoadWithRequest` di komponen
+`WebView` (`src/screens/Reader/index.tsx`) yang membandingkan hostname
+tujuan navigasi terhadap base-domain (2 label terakhir) dari
+`chapterMeta.externalUrl` — request ke domain lain (termasuk redirect
+paksa dari skrip iklan) ditolak, WebView tetap di halaman awal. Ditambah
+`setSupportMultipleWindows={false}` untuk mencegah popup window baru.
+
+**Alasan:** ini mitigasi paling praktis tanpa perlu whitelist/blacklist
+domain spam yang mustahil dijaga up-to-date secara manual — cukup
+mengunci WebView tetap di domain yang memang dimaksud (domain dari
+`externalUrl` yang dikembalikan MangaDex), apa pun skrip pihak ketiga
+yang berjalan di dalamnya.
+
+**Trade-off yang diterima:** kalau situs resmi tertentu memang butuh
+redirect legit lintas-domain (mis. SSO login, CDN aset di subdomain
+berbeda yang tidak match pola "2 label terakhir"), WebView akan
+memblokirnya juga — belum ada allowlist granular per-situs. Diterima
+untuk saat ini karena skenario utama (baca chapter tanpa login) tidak
+butuh redirect lintas-domain sama sekali.
+
+---
+
+## 011 — Sort eksplisit di `mapAggregate` (bukan andalkan urutan `Object.values()`)
+
+**Tanggal:** 2026-09-14
+**Status:** Diterapkan (bugfix, dilaporkan user setelah Milestone 7)
+
+**Konteks:** User melaporkan urutan chapter di MangaDetail tidak
+konsisten untuk sebagian manga (mis. "My Dress-Up Darling"). Root cause:
+`mapAggregate` (`src/api/mangadexMappers.ts`) memakai `Object.values()`
+langsung atas objek `chapters`/`volumes` dari respons MangaDex tanpa
+sorting eksplisit — mengandalkan urutan key objek JS apa adanya.
+
+**Masalah teknisnya bukan di API MangaDex**, melainkan gotcha spec
+ECMAScript: objek dengan key campuran integer-index (`"25"`, `"110"`)
+dan non-integer-index (`"113.2"`, `"112.1"`) **tidak** diiterasi sesuai
+urutan insersi — key integer-index selalu dipaksa muncul lebih dulu
+secara ascending, baru diikuti key string lain sesuai urutan insersi
+asli. MangaDex sudah mengirim chapter dalam urutan descending yang benar
+di response JSON-nya; `Object.values()` di sisi app yang merusak urutan
+itu untuk sub-grup chapter bulat vs desimal.
+
+**Keputusan:** tambahkan helper `numericSortValue()` (parse `parseFloat`,
+`NaN` → `-Infinity` supaya volume/chapter non-numerik seperti `"none"`
+selalu di posisi terakhir) dan sort eksplisit `.sort()` descending untuk
+`volume.chapters` maupun `raw.volumes`, tidak lagi bergantung pada urutan
+key objek sama sekali.
+
+**Alasan:** ini masalah struktural (bukan kasus per-manga) — potensi
+muncul di **manga manapun** yang punya campuran chapter bulat & desimal
+(chapter bonus/extra "113.1", "113.2" dst adalah pola umum MangaDex).
+Fix di titik mapper tunggal (bukan di tiap consumer) supaya konsisten di
+semua tempat yang memakai `AggregateVolume[]`.
+
+**Trade-off yang diterima:** tidak ada — ini murni bugfix tanpa trade-off,
+`parseFloat` cukup andal untuk format chapter MangaDex yang selalu berupa
+angka desimal sederhana (belum pernah ditemukan format aneh seperti
+rentang "10-11" di data yang diuji).
+
+---
+
+## 012 — Matikan `gestureEnabled` iOS di layar Reader
+
+**Tanggal:** 2026-09-14
+**Status:** Diterapkan (bugfix, dilaporkan user, iOS-only — belum
+diverifikasi langsung karena lingkungan kerja tidak punya simulator iOS)
+
+**Konteks:** User melaporkan di iOS: sebagian chapter tidak bisa
+di-paging (macet), dan swipe kiri→kanan malah keluar dari Reader ke
+MangaDetail. Root cause: `createNativeStackNavigator` React Navigation
+mengaktifkan gesture swipe-back native iOS secara default
+(`gestureEnabled: true`) di semua screen kecuali screen pertama stack.
+Gesture recognizer itu berebutan dengan pan gesture `FlatList horizontal
+pagingEnabled` yang dipakai mode page-by-page Reader (Milestone 8) —
+keduanya sama-sama merespons swipe horizontal, dan di iOS gesture
+recognizer sistem (edge-swipe-to-pop) punya prioritas lebih tinggi untuk
+swipe yang mulai dekat tepi kiri layar.
+
+**Keputusan:** set `options={{ gestureEnabled: false }}` khusus di
+`<Stack.Screen name="Reader">` pada `BrowseNavigator`, `SearchNavigator`,
+dan `LibraryNavigator` (ketiganya mendaftarkan Reader sebagai screen
+tujuan dari MangaDetail). Tombol back manual di overlay Reader
+(`Pressable` dengan ikon `ArrowLeft`, sudah ada sejak Milestone 8) tetap
+jadi satu-satunya jalan keluar layar ini.
+
+**Alasan:** Android tidak punya native edge-swipe-to-pop gesture by
+default, jadi masalah ini murni spesifik iOS — `gestureEnabled: false`
+tidak berdampak ke pengalaman Android sama sekali. Alternatif (mis. custom
+`PanResponder` yang koordinasi dengan gesture navigator) jauh lebih rumit
+untuk manfaat yang sama, sementara Reader sudah punya jalan keluar
+eksplisit (tombol back) sehingga menghilangkan swipe-back di layar ini
+tidak kehilangan fungsionalitas.
+
+**Trade-off yang diterima:** user iOS kehilangan gestur "swipe-back" yang
+biasa mereka pakai di layar lain untuk keluar dari Reader — harus pakai
+tombol back eksplisit. Diterima karena gestur itu sendiri yang jadi
+sumber bug (ambigu dengan gestur paging). **Perlu verifikasi lapangan**:
+belum ada akses Xcode/simulator iOS di lingkungan kerja Claude untuk
+sesi ini, jadi fix ini diturunkan murni dari pemahaman API React
+Navigation + gejala yang dilaporkan user, bukan hasil pengujian langsung.
